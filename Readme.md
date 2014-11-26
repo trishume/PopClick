@@ -16,7 +16,7 @@ problem in audio recognition as it has very different goals from other domains l
 
 ## Screenshot
 
-![Screenshot of spectrogram](http://imgur.com/zu1Uqhp)
+![Screenshot of spectrogram](http://imgur.com/zu1Uqhp.png)
 
 ## Current Algorithm
 
