@@ -34,7 +34,6 @@ import java.awt.image.BufferedImage;
 import javax.swing.JComponent;
 
 import be.tarsos.dsp.util.PitchConverter;
-import be.tarsos.dsp.util.fft.FFT;
 
 public class SpectrogramPanel extends JComponent implements ComponentListener{
 	/**
