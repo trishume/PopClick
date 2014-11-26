@@ -42,6 +42,8 @@ public class SpectrogramPanel extends JComponent implements ComponentListener{
 	 */
 	private static final long serialVersionUID = -3729805747119272534L;
 	
+	private static final int markIndex = 100;
+	
 	private BufferedImage bufferedImage;
 	private Graphics2D bufferedGraphics;
 	
@@ -82,51 +84,67 @@ public class SpectrogramPanel extends JComponent implements ComponentListener{
 
 
 	String currentPitch = "";
-	
 
-	public void drawFFT(float[] amplitudes,FFT fft){
+
+	public void drawFFT(float[] amplitudes, int status){
 		if(getHeight() == 0) return;
 		double maxAmplitude = 5.0;
 		//for every pixel calculate an amplitude
 		float[] pixeledAmplitudes = new float[getHeight()];
 		//iterate the large array and map to pixels
-		 for (int i = amplitudes.length/800; i < amplitudes.length; i++) {
-             int pixelY = frequencyToBin(i * 44100 / (amplitudes.length * 8));
-             pixeledAmplitudes[pixelY] += amplitudes[i];
-             maxAmplitude = Math.max(pixeledAmplitudes[pixelY], maxAmplitude);
-         }
-		 
-		 //draw the pixels 
-		 for (int i = 0; i < pixeledAmplitudes.length; i++) {
-    		 Color color = Color.black;
-             if (maxAmplitude != 0) {
-            	  
-            	 final int greyValue = (int) (Math.log1p(pixeledAmplitudes[i] / maxAmplitude) / Math.log1p(1.0000001) * 255);
-             	 color = new Color(greyValue, greyValue, greyValue);
-             }
-             bufferedGraphics.setColor(color);
-        	 bufferedGraphics.fillRect(position, i, 3, 1);
-         }
-		
-		bufferedGraphics.clearRect(0,0, 190,30);
-        bufferedGraphics.setColor(Color.WHITE);
-        bufferedGraphics.drawString(currentPitch, 20, 20);
-        
-        for(int i = 100 ; i < 500; i += 100){
-        	int bin = frequencyToBin(i);
-			bufferedGraphics.drawLine(0, bin, 5, bin);
+		for (int i = amplitudes.length/800; i < amplitudes.length; i++) {
+			int pixelY = frequencyToBin(i * 44100 / (amplitudes.length * 8));
+			pixeledAmplitudes[pixelY] += amplitudes[i];
+			maxAmplitude = Math.max(pixeledAmplitudes[pixelY], maxAmplitude);
 		}
+
+		//draw the pixels 
+		for (int i = 0; i < pixeledAmplitudes.length; i++) {
+			Color color = Color.black;
+			if (maxAmplitude != 0) {
+
+				final int greyValue = (int) (Math.log1p(pixeledAmplitudes[i] / maxAmplitude) / Math.log1p(1.0000001) * 255);
+				color = new Color(greyValue, greyValue, greyValue);
+			}
+			bufferedGraphics.setColor(color);
+			bufferedGraphics.fillRect(position, i, 3, 1);
+		}
+
+		bufferedGraphics.setColor(Color.RED);
+		bufferedGraphics.fillRect(position+3, 0, 1, getHeight());
+
+		if(status == 1) {
+			bufferedGraphics.setColor(Color.getHSBColor(0.5f, 1.0f, 0.25f));
+		} else if(status == 2) {
+			bufferedGraphics.setColor(Color.GREEN);
+		} else {
+			bufferedGraphics.setColor(Color.BLUE);
+		}
+		bufferedGraphics.fillRect(position, 0, 1, getHeight()); 
 		
-        for(int i = 500 ; i <= 20000; i += 500){
+		if(markIndex != 0) {
+			bufferedGraphics.setColor(Color.GREEN);
+			int pixelY = frequencyToBin(markIndex * 44100 / (amplitudes.length * 8));
+			bufferedGraphics.fillRect(position, pixelY, 3, 1);
+		}
+
+		bufferedGraphics.setColor(Color.WHITE);
+
+		for(int i = 100 ; i < 500; i += 100){
 			int bin = frequencyToBin(i);
 			bufferedGraphics.drawLine(0, bin, 5, bin);
 		}
-        
-        for(int i = 100 ; i <= 20000; i*=10){
+
+		for(int i = 500 ; i <= 20000; i += 500){
+			int bin = frequencyToBin(i);
+			bufferedGraphics.drawLine(0, bin, 5, bin);
+		}
+
+		for(int i = 100 ; i <= 20000; i*=10){
 			int bin = frequencyToBin(i);
 			bufferedGraphics.drawString(String.valueOf(i), 10, bin);
 		}
-        
+
 		repaint();
 		position+=3;
 		position = position % getWidth();

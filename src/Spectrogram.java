@@ -48,6 +48,7 @@ import javax.swing.border.TitledBorder;
 import be.tarsos.dsp.AudioDispatcher;
 import be.tarsos.dsp.AudioEvent;
 import be.tarsos.dsp.AudioProcessor;
+import be.tarsos.dsp.SilenceDetector;
 import be.tarsos.dsp.io.jvm.AudioDispatcherFactory;
 import be.tarsos.dsp.io.jvm.AudioPlayer;
 import be.tarsos.dsp.io.jvm.JVMAudioInputStream;
@@ -65,7 +66,7 @@ public class Spectrogram extends JFrame {
 	private static final int speedFactor = 1;
 	private float sampleRate = 44100 / speedFactor;
 	private int bufferSize = 1024 * 4 / speedFactor;
-	private int overlap = 768 * 4 / speedFactor;
+	private int overlap = 512 * 4 / speedFactor;
 	
 	private String fileName;
 		
@@ -135,6 +136,8 @@ public class Spectrogram extends JFrame {
 		new Thread(dispatcher,"Audio dispatching").start();
 	}
 	
+	SilenceDetector silenceDetect = new SilenceDetector(-90.0, false);
+	PopDetector popDetect = new PopDetector(bufferSize/2);
 	AudioProcessor fftProcessor = new AudioProcessor(){
 		
 		FFT fft = new FFT(bufferSize);
@@ -152,7 +155,20 @@ public class Spectrogram extends JFrame {
 			System.arraycopy(audioFloatBuffer, 0, transformbuffer, 0, audioFloatBuffer.length); 
 			fft.forwardTransform(transformbuffer);
 			fft.modulus(transformbuffer, amplitudes);
-			panel.drawFFT(amplitudes,fft);
+			
+			int status = 0;
+			if(silenceDetect.isSilence(audioFloatBuffer)) {
+				popDetect.silence();
+				status = 1;
+			} else {
+				popDetect.noise(amplitudes);
+			}
+			
+			if(popDetect.popEvent()) {
+				status = 2;
+			}
+			
+			panel.drawFFT(amplitudes,status);
 			panel.repaint();
 			return true;
 		}
