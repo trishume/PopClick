@@ -45,6 +45,7 @@ public:
 
 protected:
     // plugin-specific data and methods go here
+    int m_blockSize;
 };
 
 
