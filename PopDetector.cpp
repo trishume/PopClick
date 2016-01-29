@@ -6,6 +6,8 @@ using namespace std;
 
 PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = 512;
+    m_boundThreshDiv = 10;
+    m_sensitivity = 5;
 }
 
 PopDetector::~PopDetector() {
@@ -78,13 +80,22 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
     // they have not changed in the mean time.
 
     ParameterDescriptor d;
-    d.identifier = "parameter";
-    d.name = "Some Parameter";
-    d.description = "";
+    d.identifier = "sensitivity";
+    d.name = "Sensitivity";
+    d.description = "The activation threshold for recognition";
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 10;
     d.defaultValue = 5;
+    d.isQuantized = false;
+    list.push_back(d);
+    d.identifier = "bounddiv";
+    d.name = "Boundary Threshold divisor";
+    d.description = "Divisor of max for boundary threshold";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 100;
+    d.defaultValue = 10;
     d.isQuantized = false;
     list.push_back(d);
 
@@ -92,15 +103,19 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
 }
 
 float PopDetector::getParameter(string identifier) const {
-    if (identifier == "parameter") {
-        return 5; // return the ACTUAL current value of your parameter here!
+    if (identifier == "sensitivity") {
+        return m_sensitivity; // return the ACTUAL current value of your parameter here!
+    } else if(identifier == "bounddiv") {
+        return m_boundThreshDiv;
     }
     return 0;
 }
 
 void PopDetector::setParameter(string identifier, float value) {
-    if (identifier == "parameter") {
-        // set the actual value of your parameter
+    if (identifier == "sensitivity") {
+        m_sensitivity = value;
+    } else if(identifier == "bounddiv") {
+        m_boundThreshDiv = value;
     }
 }
 
@@ -157,6 +172,49 @@ PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     d.sampleType = OutputDescriptor::OneSamplePerStep;
     list.push_back(d);
 
+    d.identifier = "average";
+    d.name = "Average Power";
+    d.description = "Average of the power spectrum for a column";
+    d.unit = "";
+    d.hasFixedBinCount = true;
+    d.binCount = 1;
+    d.hasKnownExtents = false;
+    d.isQuantized = false;
+    d.sampleType = OutputDescriptor::OneSamplePerStep;
+    list.push_back(d);
+
+    d.identifier = "max";
+    d.name = "Max Power";
+    d.description = "Max of the power spectrum for a column";
+    d.unit = "";
+    d.hasFixedBinCount = true;
+    d.binCount = 1;
+    d.hasKnownExtents = false;
+    d.isQuantized = false;
+    d.sampleType = OutputDescriptor::OneSamplePerStep;
+    list.push_back(d);
+
+    d.identifier = "lower";
+    d.name = "Lower bound";
+    d.description = "Lower edge";
+    d.unit = "";
+    d.hasFixedBinCount = true;
+    d.binCount = 1;
+    d.hasKnownExtents = false;
+    d.isQuantized = false;
+    d.sampleType = OutputDescriptor::OneSamplePerStep;
+    list.push_back(d);
+    d.identifier = "upper";
+    d.name = "Upper bound";
+    d.description = "Upper edge";
+    d.unit = "";
+    d.hasFixedBinCount = true;
+    d.binCount = 1;
+    d.hasKnownExtents = false;
+    d.isQuantized = false;
+    d.sampleType = OutputDescriptor::OneSamplePerStep;
+    list.push_back(d);
+
     return list;
 }
 
@@ -164,26 +222,70 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     FeatureSet fs;
 
     if (m_blockSize == 0) {
-    cerr << "ERROR: PopDetector::process: Not initialised" << endl;
-    return fs;
+        cerr << "ERROR: PopDetector::process: Not initialised" << endl;
+        return fs;
     }
 
     size_t n = m_blockSize / 2 + 1;
     const float *fbuf = inputBuffers[0];
 
-    Feature feature;
-    feature.hasTimestamp = false;
-    feature.values.reserve(n); // optional
-
+    Feature spectrum;
+    spectrum.hasTimestamp = false;
+    spectrum.values.reserve(n); // optional
     for (size_t i = 0; i < n; ++i) {
+        double real = fbuf[i * 2];
+        double imag = fbuf[i * 2 + 1];
+        spectrum.values.push_back(real * real + imag * imag);
+    }
+    fs[0].push_back(spectrum);
 
-    double real = fbuf[i * 2];
-    double imag = fbuf[i * 2 + 1];
+    float avg = 0;
+    for (size_t i = 0; i < n; ++i) {
+        avg += spectrum.values[i];
+    }
+    avg = avg / n;
 
-        feature.values.push_back(real * real + imag * imag);
+    Feature avgFeat;
+    avgFeat.hasTimestamp = false;
+    avgFeat.values.push_back(avg);
+    fs[1].push_back(avgFeat);
+
+    float max = 0;
+    for (size_t i = 0; i < n; ++i) {
+        if(spectrum.values[i] > max)
+            max = spectrum.values[i];
     }
 
-    fs[0].push_back(feature);
+    Feature maxFeat;
+    maxFeat.hasTimestamp = false;
+    maxFeat.values.push_back(max);
+    fs[2].push_back(maxFeat);
+
+    int lower = 0;
+    for (size_t i = 0; i < n; ++i) {
+        if(spectrum.values[i] > max/m_boundThreshDiv) {
+            lower = i;
+            break;
+        }
+    }
+
+    Feature lowerFeat;
+    lowerFeat.hasTimestamp = false;
+    lowerFeat.values.push_back(lower);
+    fs[3].push_back(lowerFeat);
+
+    int upper = n;
+    for (int i = n-1; i >= 0; --i) {
+        if(spectrum.values[i] > max/m_boundThreshDiv) {
+            upper = i;
+            break;
+        }
+    }
+
+    Feature upperFeat;
+    upperFeat.hasTimestamp = false;
+    upperFeat.values.push_back(upper);
+    fs[4].push_back(upperFeat);
 
     return fs;
 }
