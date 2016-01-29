@@ -6,8 +6,7 @@
 using std::string;
 
 
-class PopDetector : public Vamp::Plugin
-{
+class PopDetector : public Vamp::Plugin {
 public:
     PopDetector(float inputSampleRate);
     virtual ~PopDetector();
@@ -49,6 +48,13 @@ protected:
     int m_boundThreshDiv;
     float m_sensitivity;
     float m_silenceThresh;
+
+    enum State {SilenceBefore, Pop, SilenceAfter, BadSound};
+    State m_curState;
+    int m_framesInState;
+    void transition(State s) { m_curState = s; m_framesInState = 0; }
+
+    bool stateMachine(float avg, int lower, int upper);
 };
 
 

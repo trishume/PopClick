@@ -9,6 +9,9 @@ PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_boundThreshDiv = 10;
     m_sensitivity = 5;
     m_silenceThresh = 0.2;
+
+    m_curState = PopDetector::SilenceBefore;
+    m_framesInState = 0;
 }
 
 PopDetector::~PopDetector() {
@@ -163,6 +166,11 @@ void PopDetector::reset() {
     // Clear buffers, reset stored values, etc
 }
 
+PopDetector::FeatureSet PopDetector::getRemainingFeatures() {
+    return FeatureSet();
+}
+
+
 PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     OutputList list;
 
@@ -214,10 +222,22 @@ PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     d.sampleType = OutputDescriptor::OneSamplePerStep;
     list.push_back(d);
 
+    d.identifier = "pops";
+    d.name = "Pop instants";
+    d.description = "Instants where a real-time recognizer could recognize a pop had occured.";
+    d.unit = "";
+    d.hasFixedBinCount = true;
+    d.binCount = 0;
+    d.hasKnownExtents = false;
+    d.isQuantized = false;
+    d.sampleType = OutputDescriptor::VariableSampleRate;
+    d.sampleRate = m_inputSampleRate;
+    list.push_back(d);
+
     return list;
 }
 
-PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, Vamp::RealTime) {
+PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, Vamp::RealTime timestamp) {
     FeatureSet fs;
 
     if (m_blockSize == 0) {
@@ -250,7 +270,7 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     fs[2].push_back(avgFeat);
 
     float max = 0;
-    int maxIndex = 0;
+    size_t maxIndex = 0;
     for (size_t i = 0; i < n; ++i) {
         if(spectrum.values[i] > max) {
             max = spectrum.values[i];
@@ -263,7 +283,7 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     maxFeat.values.push_back(max);
     fs[3].push_back(maxFeat);
 
-    int lower = 0;
+    size_t lower = 0;
     for (size_t i = 0; i < n; ++i) {
         if(spectrum.values[i] > max/m_boundThreshDiv) {
             lower = i;
@@ -271,12 +291,20 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
         }
     }
 
-    int upper = n;
+    size_t upper = n;
     for (int i = n-1; i >= 0; --i) {
         if(spectrum.values[i] > max/m_boundThreshDiv) {
             upper = i;
             break;
         }
+    }
+
+    bool recognized = stateMachine(avg, lower, upper);
+    if(recognized) {
+        Feature instant;
+        instant.hasTimestamp = true;
+        instant.timestamp = timestamp;
+        fs[4].push_back(instant);
     }
 
     Feature debug;
@@ -286,6 +314,10 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
         float val = 0;
         if((i == lower || i == upper || i == maxIndex) && avg > m_silenceThresh) {
             val = spectrum.values[i];
+        } else if(i == 0) {
+            val = (int)m_curState;
+        } else if(i == 1) {
+            val = (int)m_framesInState;
         }
         debug.values.push_back(val);
     }
@@ -294,7 +326,31 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     return fs;
 }
 
-PopDetector::FeatureSet PopDetector::getRemainingFeatures() {
-    return FeatureSet();
+bool PopDetector::stateMachine(float avg, int lower, int upper) {
+    int popTop = (m_curState == SilenceBefore) ? 22 : 19;
+    int popHeight = (m_curState == SilenceBefore) ? 20 : 10;
+    if(avg < m_silenceThresh) { // silence frame
+        if(m_curState == SilenceAfter && m_framesInState >= 30) {
+            // don't use normal transition because silence after should also add to silence before count
+            m_curState = SilenceBefore;
+            m_framesInState += 1;
+            return true; // successful lip pop detection
+        } else if(m_curState == Pop && m_framesInState >= 3) {
+            transition(SilenceAfter);
+        } else if(m_curState != SilenceBefore && m_curState != SilenceAfter) {
+            transition(SilenceBefore);
+        }
+    } else if(upper < popTop && upper - lower < popHeight) { // pop frame
+        if(m_curState == SilenceBefore && m_framesInState >= 40) {
+            transition(Pop);
+        } else if(m_curState != Pop) {
+            transition(BadSound);
+        }
+    } else { // misc. bad sound
+        transition(BadSound);
+    }
+
+    m_framesInState += 1;
+    return false;
 }
 
