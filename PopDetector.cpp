@@ -8,6 +8,7 @@ PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = 512;
     m_boundThreshDiv = 10;
     m_sensitivity = 5;
+    m_silenceThresh = 0.2;
 }
 
 PopDetector::~PopDetector() {
@@ -98,6 +99,15 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
     d.defaultValue = 10;
     d.isQuantized = false;
     list.push_back(d);
+    d.identifier = "silence";
+    d.name = "Silence threshold";
+    d.description = "Threshold of the average amplitude for silence";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 10;
+    d.defaultValue = 0.2;
+    d.isQuantized = false;
+    list.push_back(d);
 
     return list;
 }
@@ -107,6 +117,8 @@ float PopDetector::getParameter(string identifier) const {
         return m_sensitivity; // return the ACTUAL current value of your parameter here!
     } else if(identifier == "bounddiv") {
         return m_boundThreshDiv;
+    } else if(identifier == "silence") {
+        return m_silenceThresh;
     }
     return 0;
 }
@@ -116,6 +128,8 @@ void PopDetector::setParameter(string identifier, float value) {
         m_sensitivity = value;
     } else if(identifier == "bounddiv") {
         m_boundThreshDiv = value;
+    } else if(identifier == "silence") {
+        m_silenceThresh = value;
     }
 }
 
@@ -172,6 +186,12 @@ PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     d.sampleType = OutputDescriptor::OneSamplePerStep;
     list.push_back(d);
 
+    d.identifier = "debugspectrum";
+    d.name = "Debug Spectrum";
+    d.description = "Spectrum containing special debugging info";
+    // all attributes are already set to the right value
+    list.push_back(d);
+
     d.identifier = "average";
     d.name = "Average Power";
     d.description = "Average of the power spectrum for a column";
@@ -186,27 +206,6 @@ PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     d.identifier = "max";
     d.name = "Max Power";
     d.description = "Max of the power spectrum for a column";
-    d.unit = "";
-    d.hasFixedBinCount = true;
-    d.binCount = 1;
-    d.hasKnownExtents = false;
-    d.isQuantized = false;
-    d.sampleType = OutputDescriptor::OneSamplePerStep;
-    list.push_back(d);
-
-    d.identifier = "lower";
-    d.name = "Lower bound";
-    d.description = "Lower edge";
-    d.unit = "";
-    d.hasFixedBinCount = true;
-    d.binCount = 1;
-    d.hasKnownExtents = false;
-    d.isQuantized = false;
-    d.sampleType = OutputDescriptor::OneSamplePerStep;
-    list.push_back(d);
-    d.identifier = "upper";
-    d.name = "Upper bound";
-    d.description = "Upper edge";
     d.unit = "";
     d.hasFixedBinCount = true;
     d.binCount = 1;
@@ -248,18 +247,21 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     Feature avgFeat;
     avgFeat.hasTimestamp = false;
     avgFeat.values.push_back(avg);
-    fs[1].push_back(avgFeat);
+    fs[2].push_back(avgFeat);
 
     float max = 0;
+    int maxIndex = 0;
     for (size_t i = 0; i < n; ++i) {
-        if(spectrum.values[i] > max)
+        if(spectrum.values[i] > max) {
             max = spectrum.values[i];
+            maxIndex = i;
+        }
     }
 
     Feature maxFeat;
     maxFeat.hasTimestamp = false;
     maxFeat.values.push_back(max);
-    fs[2].push_back(maxFeat);
+    fs[3].push_back(maxFeat);
 
     int lower = 0;
     for (size_t i = 0; i < n; ++i) {
@@ -269,11 +271,6 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
         }
     }
 
-    Feature lowerFeat;
-    lowerFeat.hasTimestamp = false;
-    lowerFeat.values.push_back(lower);
-    fs[3].push_back(lowerFeat);
-
     int upper = n;
     for (int i = n-1; i >= 0; --i) {
         if(spectrum.values[i] > max/m_boundThreshDiv) {
@@ -282,10 +279,17 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
         }
     }
 
-    Feature upperFeat;
-    upperFeat.hasTimestamp = false;
-    upperFeat.values.push_back(upper);
-    fs[4].push_back(upperFeat);
+    Feature debug;
+    debug.hasTimestamp = false;
+    debug.values.reserve(n); // optional
+    for (size_t i = 0; i < n; ++i) {
+        float val = 0;
+        if((i == lower || i == upper || i == maxIndex) && avg > m_silenceThresh) {
+            val = spectrum.values[i];
+        }
+        debug.values.push_back(val);
+    }
+    fs[1].push_back(debug);
 
     return fs;
 }

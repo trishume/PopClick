@@ -48,6 +48,7 @@ protected:
     int m_blockSize;
     int m_boundThreshDiv;
     float m_sensitivity;
+    float m_silenceThresh;
 };
 
 
