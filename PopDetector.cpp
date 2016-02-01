@@ -9,6 +9,7 @@ PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_boundThreshDiv = 10;
     m_sensitivity = 5;
     m_silenceThresh = 0.2;
+    m_startBin = 1;
 
     m_curState = PopDetector::SilenceBefore;
     m_framesInState = 0;
@@ -100,7 +101,8 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
     d.minValue = 0;
     d.maxValue = 100;
     d.defaultValue = 10;
-    d.isQuantized = false;
+    d.isQuantized = true;
+    d.quantizeStep = 1.0;
     list.push_back(d);
     d.identifier = "silence";
     d.name = "Silence threshold";
@@ -110,6 +112,16 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
     d.maxValue = 10;
     d.defaultValue = 0.2;
     d.isQuantized = false;
+    list.push_back(d);
+    d.identifier = "startbin";
+    d.name = "High pass filter";
+    d.description = "Ignore bins below this bin number.";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 5;
+    d.defaultValue = 1;
+    d.isQuantized = true;
+    d.quantizeStep = 1.0;
     list.push_back(d);
 
     return list;
@@ -122,6 +134,8 @@ float PopDetector::getParameter(string identifier) const {
         return m_boundThreshDiv;
     } else if(identifier == "silence") {
         return m_silenceThresh;
+    } else if(identifier == "startbin") {
+        return m_startBin;
     }
     return 0;
 }
@@ -133,6 +147,8 @@ void PopDetector::setParameter(string identifier, float value) {
         m_boundThreshDiv = value;
     } else if(identifier == "silence") {
         m_silenceThresh = value;
+    } else if(identifier == "startbin") {
+        m_startBin = value;
     }
 }
 
@@ -259,7 +275,7 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     fs[0].push_back(spectrum);
 
     float avg = 0;
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = m_startBin; i < n; ++i) {
         avg += spectrum.values[i];
     }
     avg = avg / n;
@@ -271,7 +287,7 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
 
     float max = 0;
     size_t maxIndex = 0;
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = m_startBin; i < n; ++i) {
         if(spectrum.values[i] > max) {
             max = spectrum.values[i];
             maxIndex = i;
@@ -284,7 +300,7 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     fs[3].push_back(maxFeat);
 
     size_t lower = 0;
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = m_startBin; i < n; ++i) {
         if(spectrum.values[i] > max/m_boundThreshDiv) {
             lower = i;
             break;
@@ -292,7 +308,7 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     }
 
     size_t upper = n;
-    for (int i = n-1; i >= 0; --i) {
+    for (int i = n-1; i >= m_startBin; --i) {
         if(spectrum.values[i] > max/m_boundThreshDiv) {
             upper = i;
             break;
@@ -328,7 +344,12 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
 
 bool PopDetector::stateMachine(float avg, int lower, int upper) {
     int popTop = (m_curState == SilenceBefore) ? 22 : 19;
-    int popHeight = (m_curState == SilenceBefore) ? 20 : 10;
+    int popHeight = 10;
+    if(m_curState == SilenceBefore) {
+        popHeight = 20;
+    } else if(m_framesInState > 2) {
+        popHeight = 6;
+    }
     if(avg < m_silenceThresh) { // silence frame
         if(m_curState == SilenceAfter && m_framesInState >= 30) {
             // don't use normal transition because silence after should also add to silence before count
@@ -343,6 +364,8 @@ bool PopDetector::stateMachine(float avg, int lower, int upper) {
     } else if(upper < popTop && upper - lower < popHeight) { // pop frame
         if(m_curState == SilenceBefore && m_framesInState >= 40) {
             transition(Pop);
+        // } else if(m_curState == Pop && m_framesInState > 8) { // too long
+        //     transition(BadSound);
         } else if(m_curState != Pop) {
             transition(BadSound);
         }

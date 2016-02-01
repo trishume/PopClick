@@ -48,6 +48,7 @@ protected:
     int m_boundThreshDiv;
     float m_sensitivity;
     float m_silenceThresh;
+    int m_startBin;
 
     enum State {SilenceBefore, Pop, SilenceAfter, BadSound};
     State m_curState;
