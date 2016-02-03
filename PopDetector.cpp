@@ -2,16 +2,14 @@
 
 #include <iostream>
 #include <numeric>
+#include <algorithm>
+#include <cmath>
 
 using namespace std;
 
-static const int kBufferPrimaryHeight = 25;
-static const int kBufferCollapsedHeight = 1;
-static const int kBufferHeight = kBufferPrimaryHeight + kBufferCollapsedHeight;
-static const int kBufferWidth = 32;
-static const int kBufferSize = kBufferHeight*kBufferWidth;
+#include "poptemplate.h"
 
-static const int kDebugHeight = kBufferHeight + 2;
+static const int kDebugHeight = kBufferHeight + 3;
 
 PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = 512;
@@ -260,6 +258,17 @@ PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     d.sampleType = OutputDescriptor::OneSamplePerStep;
     list.push_back(d);
 
+    d.identifier = "diff";
+    d.name = "Template difference";
+    d.description = "The extent to which the template pop matches the buffer.";
+    d.unit = "";
+    d.hasFixedBinCount = true;
+    d.binCount = 1;
+    d.hasKnownExtents = false;
+    d.isQuantized = false;
+    d.sampleType = OutputDescriptor::OneSamplePerStep;
+    list.push_back(d);
+
     d.identifier = "pops";
     d.name = "Pop instants";
     d.description = "Instants where a real-time recognizer could recognize a pop had occured.";
@@ -307,14 +316,9 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     avgFeat.values.push_back(avg);
     fs[2].push_back(avgFeat);
 
-    float max = 0;
-    size_t maxIndex = 0;
-    for (size_t i = m_startBin; i < n; ++i) {
-        if(spectrum.values[i] > max) {
-            max = spectrum.values[i];
-            maxIndex = i;
-        }
-    }
+    auto it = max_element(spectrum.values.begin()+m_startBin,spectrum.values.end());
+    float max = *it;
+    size_t maxIndex = it-spectrum.values.begin();
 
     Feature maxFeat;
     maxFeat.hasTimestamp = false;
@@ -347,17 +351,24 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     float highSum = accumulate(spectrum.values.begin()+kBufferPrimaryHeight,spectrum.values.end(),0.0);
     buffer.push_back(highSum);
 
+    float diff = templateDiff();
+    Feature diffFeat;
+    diffFeat.hasTimestamp = false;
+    diffFeat.values.push_back(diff);
+    fs[4].push_back(diffFeat);
+
     bool recognized = stateMachine(avg, lower, upper);
     if(recognized) {
         Feature instant;
         instant.hasTimestamp = true;
         instant.timestamp = timestamp;
-        fs[4].push_back(instant);
+        fs[5].push_back(instant);
     }
 
     Feature debug;
     debug.hasTimestamp = false;
     debug.values.reserve(kDebugHeight); // optional
+    debug.values.push_back(diff);
     debug.values.push_back(m_curState);
     debug.values.push_back(m_framesInState);
     for (size_t i = 0; i < kBufferHeight; ++i) {
@@ -402,5 +413,15 @@ bool PopDetector::stateMachine(float avg, int lower, int upper) {
 
     m_framesInState += 1;
     return false;
+}
+
+float PopDetector::templateDiff() {
+    float maxVal = *max_element(buffer.begin(), buffer.end());
+    float diff = 0;
+    for(unsigned i = 0; i < kBufferSize; ++i) {
+        float d = kPopTemplate[i]/kPopTemplateMax - buffer[i]/maxVal;
+        diff += abs(d);
+    }
+    return diff;
 }
 

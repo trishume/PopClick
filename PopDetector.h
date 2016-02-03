@@ -58,6 +58,7 @@ protected:
     bool stateMachine(float avg, int lower, int upper);
 
     std::deque<float> buffer;
+    float templateDiff();
 };
 
 
