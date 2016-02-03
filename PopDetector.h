@@ -2,9 +2,9 @@
 #define _POPCLICK_H_
 
 #include <vamp-sdk/Plugin.h>
+#include <deque>
 
 using std::string;
-
 
 class PopDetector : public Vamp::Plugin {
 public:
@@ -56,6 +56,8 @@ protected:
     void transition(State s) { m_curState = s; m_framesInState = 0; }
 
     bool stateMachine(float avg, int lower, int upper);
+
+    std::deque<float> buffer;
 };
 
 

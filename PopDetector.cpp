@@ -1,8 +1,17 @@
 #include "PopDetector.h"
 
 #include <iostream>
+#include <numeric>
 
 using namespace std;
+
+static const int kBufferPrimaryHeight = 25;
+static const int kBufferCollapsedHeight = 1;
+static const int kBufferHeight = kBufferPrimaryHeight + kBufferCollapsedHeight;
+static const int kBufferWidth = 32;
+static const int kBufferSize = kBufferHeight*kBufferWidth;
+
+static const int kDebugHeight = kBufferHeight + 2;
 
 PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = 512;
@@ -175,11 +184,23 @@ bool PopDetector::initialise(size_t channels, size_t stepSize, size_t blockSize)
     // Real initialisation work goes here!
     m_blockSize = blockSize;
 
+    buffer.clear();
+    for(unsigned i = 0; i < kBufferSize; ++i) {
+        buffer.push_back(0.0);
+    }
+
     return true;
 }
 
 void PopDetector::reset() {
     // Clear buffers, reset stored values, etc
+    m_framesInState = 0;
+    m_curState = SilenceBefore;
+
+    // clear buffer
+    for(auto &&x : buffer) {
+        x = 0.0;
+    }
 }
 
 PopDetector::FeatureSet PopDetector::getRemainingFeatures() {
@@ -213,6 +234,7 @@ PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     d.identifier = "debugspectrum";
     d.name = "Debug Spectrum";
     d.description = "Spectrum containing special debugging info";
+    d.binCount = kDebugHeight;
     // all attributes are already set to the right value
     list.push_back(d);
 
@@ -315,6 +337,16 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
         }
     }
 
+    // update buffer forward one time step
+    for(unsigned i = 0; i < kBufferPrimaryHeight; ++i) {
+        buffer.pop_front();
+        buffer.push_back(spectrum.values[i]);
+    }
+    // high frequencies aren't useful so we bin them all together
+    buffer.pop_front();
+    float highSum = accumulate(spectrum.values.begin()+kBufferPrimaryHeight,spectrum.values.end(),0.0);
+    buffer.push_back(highSum);
+
     bool recognized = stateMachine(avg, lower, upper);
     if(recognized) {
         Feature instant;
@@ -325,16 +357,11 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
 
     Feature debug;
     debug.hasTimestamp = false;
-    debug.values.reserve(n); // optional
-    for (size_t i = 0; i < n; ++i) {
-        float val = 0;
-        if((i == lower || i == upper || i == maxIndex) && avg > m_silenceThresh) {
-            val = spectrum.values[i];
-        } else if(i == 0) {
-            val = (int)m_curState;
-        } else if(i == 1) {
-            val = (int)m_framesInState;
-        }
+    debug.values.reserve(kDebugHeight); // optional
+    debug.values.push_back(m_curState);
+    debug.values.push_back(m_framesInState);
+    for (size_t i = 0; i < kBufferHeight; ++i) {
+        float val = buffer[(kBufferSize-kBufferHeight)+i];
         debug.values.push_back(val);
     }
     fs[1].push_back(debug);
