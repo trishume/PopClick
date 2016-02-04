@@ -51,6 +51,7 @@ protected:
     float m_silenceThresh;
     int m_startBin;
     int m_dtwWidth;
+    int m_maxShift;
 
     enum State {SilenceBefore, Pop, SilenceAfter, BadSound};
     State m_curState;
@@ -61,9 +62,10 @@ protected:
 
     std::deque<float> buffer;
     std::vector<float> dtwGrid;
-    float templateDiff();
-    float templateDiffDtw(int w);
-    float diffCol(int templStart, int bufStart, float maxVal);
+    float templateAt(int i, int shift);
+    float templateDiff(float maxVal, int shift);
+    float templateDiffDtw(int w, float maxVal, int shift);
+    float diffCol(int templStart, int bufStart, float maxVal, int shift);
 };
 
 
