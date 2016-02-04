@@ -3,6 +3,7 @@
 
 #include <vamp-sdk/Plugin.h>
 #include <deque>
+#include <vector>
 
 using std::string;
 
@@ -49,6 +50,7 @@ protected:
     float m_sensitivity;
     float m_silenceThresh;
     int m_startBin;
+    int m_dtwWidth;
 
     enum State {SilenceBefore, Pop, SilenceAfter, BadSound};
     State m_curState;
@@ -58,7 +60,10 @@ protected:
     bool stateMachine(float avg, int lower, int upper);
 
     std::deque<float> buffer;
+    std::vector<float> dtwGrid;
     float templateDiff();
+    float templateDiffDtw(int w);
+    float diffCol(int templStart, int bufStart, float maxVal);
 };
 
 

@@ -9,14 +9,17 @@ using namespace std;
 
 #include "poptemplate.h"
 
-static const int kDebugHeight = kBufferHeight + 3;
+static const int kDebugHeight = kBufferHeight + 4;
+static const int kDtwWidth = kBufferWidth+1;
+static const int kDtwSize = kDtwWidth*kDtwWidth;
 
-PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate) {
+PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate), dtwGrid(kDtwSize) {
     m_blockSize = 512;
     m_boundThreshDiv = 10;
     m_sensitivity = 5;
     m_silenceThresh = 0.2;
     m_startBin = 1;
+    m_dtwWidth = 3;
 
     m_curState = PopDetector::SilenceBefore;
     m_framesInState = 0;
@@ -130,6 +133,16 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
     d.isQuantized = true;
     d.quantizeStep = 1.0;
     list.push_back(d);
+    d.identifier = "dtwwidth";
+    d.name = "DTW Boundary Width";
+    d.description = "Band away from diagonal that the DTW can warp in";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 30;
+    d.defaultValue = 3;
+    d.isQuantized = true;
+    d.quantizeStep = 1.0;
+    list.push_back(d);
 
     return list;
 }
@@ -143,6 +156,8 @@ float PopDetector::getParameter(string identifier) const {
         return m_silenceThresh;
     } else if(identifier == "startbin") {
         return m_startBin;
+    } else if(identifier == "dtwwidth") {
+        return m_dtwWidth;
     }
     return 0;
 }
@@ -156,6 +171,8 @@ void PopDetector::setParameter(string identifier, float value) {
         m_silenceThresh = value;
     } else if(identifier == "startbin") {
         m_startBin = value;
+    } else if(identifier == "dtwwidth") {
+        m_dtwWidth = value;
     }
 }
 
@@ -172,10 +189,10 @@ string PopDetector::getCurrentProgram() const {
     return ""; // no programs
 }
 
-void PopDetector::selectProgram(string name) {
+void PopDetector::selectProgram(string) {
 }
 
-bool PopDetector::initialise(size_t channels, size_t stepSize, size_t blockSize) {
+bool PopDetector::initialise(size_t channels, size_t, size_t blockSize) {
     if (channels < getMinChannelCount() ||
     channels > getMaxChannelCount()) return false;
 
@@ -281,6 +298,17 @@ PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     d.sampleRate = m_inputSampleRate;
     list.push_back(d);
 
+    d.identifier = "dtwdiff";
+    d.name = "DTW Template difference";
+    d.description = "Template difference with dynamic time warping";
+    d.unit = "";
+    d.hasFixedBinCount = true;
+    d.binCount = 1;
+    d.hasKnownExtents = false;
+    d.isQuantized = false;
+    d.sampleType = OutputDescriptor::OneSamplePerStep;
+    list.push_back(d);
+
     return list;
 }
 
@@ -318,7 +346,6 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
 
     auto it = max_element(spectrum.values.begin()+m_startBin,spectrum.values.end());
     float max = *it;
-    size_t maxIndex = it-spectrum.values.begin();
 
     Feature maxFeat;
     maxFeat.hasTimestamp = false;
@@ -357,6 +384,12 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     diffFeat.values.push_back(diff);
     fs[4].push_back(diffFeat);
 
+    float dtwDiff = templateDiffDtw(m_dtwWidth);
+    Feature dtwDiffFeat;
+    dtwDiffFeat.hasTimestamp = false;
+    dtwDiffFeat.values.push_back(dtwDiff);
+    fs[6].push_back(dtwDiffFeat);
+
     bool recognized = stateMachine(avg, lower, upper);
     if(recognized) {
         Feature instant;
@@ -369,6 +402,7 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     debug.hasTimestamp = false;
     debug.values.reserve(kDebugHeight); // optional
     debug.values.push_back(diff);
+    debug.values.push_back(dtwDiff);
     debug.values.push_back(m_curState);
     debug.values.push_back(m_framesInState);
     for (size_t i = 0; i < kBufferHeight; ++i) {
@@ -415,13 +449,44 @@ bool PopDetector::stateMachine(float avg, int lower, int upper) {
     return false;
 }
 
-float PopDetector::templateDiff() {
-    float maxVal = *max_element(buffer.begin(), buffer.end());
+float PopDetector::diffCol(int templStart, int bufStart, float maxVal) {
     float diff = 0;
-    for(unsigned i = 0; i < kBufferSize; ++i) {
-        float d = kPopTemplate[i]/kPopTemplateMax - buffer[i]/maxVal;
+    for(unsigned i = 0; i < kBufferHeight; ++i) {
+        float d = kPopTemplate[templStart+i]/kPopTemplateMax -
+            buffer[bufStart+i]/maxVal;
         diff += abs(d);
     }
     return diff;
+}
+
+float PopDetector::templateDiff() {
+    float maxVal = *max_element(buffer.begin(), buffer.end());
+    float diff = 0;
+    for(unsigned i = 0; i < kBufferSize; i += kBufferHeight) {
+        diff += diffCol(i,i, maxVal);
+    }
+    return diff;
+}
+
+// Dynamic Time Warping
+float PopDetector::templateDiffDtw(int w) {
+    float maxVal = *max_element(buffer.begin(), buffer.end());
+
+    for(auto &&x : dtwGrid) {
+        x = 100000000; // basically infinity
+    }
+    dtwGrid[0] = 0.0;
+
+    for(int r = 1; r < kDtwWidth; ++r) {
+        for(int c = max(1,r-w); c <= min(kDtwWidth-1, r+w); ++c) {
+            float cost = diffCol((r-1)*kBufferHeight,(c-1)*kBufferHeight, maxVal);
+            float prevMin = min(dtwGrid[(r-1)*kDtwWidth+(c-1)],
+                            min(dtwGrid[(r-1)*kDtwWidth+c],
+                                dtwGrid[r*kDtwWidth+(c-1)]));
+            dtwGrid[r*kDtwWidth+c] = cost + prevMin;
+        }
+    }
+
+    return dtwGrid[kDtwSize-1];
 }
 
