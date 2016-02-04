@@ -397,10 +397,16 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     int maxBin = (maxIt - buffer.begin()) % kBufferHeight;
     int shift = min(m_maxShift, max(kPopTemplateMaxBin - maxBin,-m_maxShift));
 
-    float diff = templateDiff(*maxIt, shift);
+    float minDiff = 10000000.0;
+    for(int i = -m_maxShift; i < m_maxShift; ++i) {
+        float diff = templateDiff(*maxIt, i);
+        if(diff < minDiff) minDiff = diff;
+    }
+    templateDiff(*maxIt, shift);
+
     Feature diffFeat;
     diffFeat.hasTimestamp = false;
-    diffFeat.values.push_back(diff);
+    diffFeat.values.push_back(minDiff);
     fs[4].push_back(diffFeat);
 
     float dtwDiff = templateDiffDtw(m_dtwWidth, *maxIt, shift);
@@ -420,7 +426,7 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
     Feature debug;
     debug.hasTimestamp = false;
     debug.values.reserve(kDebugHeight); // optional
-    debug.values.push_back(diff);
+    debug.values.push_back(minDiff);
     debug.values.push_back(dtwDiff);
     debug.values.push_back(m_curState);
     debug.values.push_back(m_framesInState);
