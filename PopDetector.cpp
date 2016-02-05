@@ -16,14 +16,15 @@ static const int kDtwSize = kDtwWidth*kDtwWidth;
 PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate), dtwGrid(kDtwSize) {
     m_blockSize = 512;
     m_boundThreshDiv = 10;
-    m_sensitivity = 5;
+    m_sensitivity = 8.5;
     m_silenceThresh = 0.2;
     m_startBin = 1;
     m_dtwWidth = 3;
-    m_maxShift = 3;
+    m_maxShift = 4;
 
     m_curState = PopDetector::SilenceBefore;
     m_framesInState = 0;
+    m_framesSinceTriggered = 0;
 }
 
 PopDetector::~PopDetector() {
@@ -97,12 +98,12 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
 
     ParameterDescriptor d;
     d.identifier = "sensitivity";
-    d.name = "Sensitivity";
-    d.description = "The activation threshold for recognition";
+    d.name = "Trigger threshold";
+    d.description = "The activation threshold below which a pop is registered";
     d.unit = "";
     d.minValue = 0;
-    d.maxValue = 10;
-    d.defaultValue = 5;
+    d.maxValue = 15;
+    d.defaultValue = 8.5;
     d.isQuantized = false;
     list.push_back(d);
     d.identifier = "bounddiv";
@@ -150,7 +151,7 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 10;
-    d.defaultValue = 3;
+    d.defaultValue = 4;
     d.isQuantized = true;
     d.quantizeStep = 1.0;
     list.push_back(d);
@@ -302,7 +303,7 @@ PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     list.push_back(d);
 
     d.identifier = "pops";
-    d.name = "Pop instants";
+    d.name = "Simple Pop instants";
     d.description = "Instants where a real-time recognizer could recognize a pop had occured.";
     d.unit = "";
     d.hasFixedBinCount = true;
@@ -322,6 +323,18 @@ PopDetector::OutputList PopDetector::getOutputDescriptors() const {
     d.hasKnownExtents = false;
     d.isQuantized = false;
     d.sampleType = OutputDescriptor::OneSamplePerStep;
+    list.push_back(d);
+
+    d.identifier = "temppops";
+    d.name = "Template Pop instants";
+    d.description = "Instants where a real-time template-based recognizer could recognize a pop had occured.";
+    d.unit = "";
+    d.hasFixedBinCount = true;
+    d.binCount = 0;
+    d.hasKnownExtents = false;
+    d.isQuantized = false;
+    d.sampleType = OutputDescriptor::VariableSampleRate;
+    d.sampleRate = m_inputSampleRate;
     list.push_back(d);
 
     return list;
@@ -402,7 +415,14 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
         float diff = templateDiff(*maxIt, i);
         if(diff < minDiff) minDiff = diff;
     }
-    templateDiff(*maxIt, shift);
+    m_framesSinceTriggered += 1;
+    if(minDiff < m_sensitivity && m_framesSinceTriggered > 15) {
+        Feature instant;
+        instant.hasTimestamp = true;
+        instant.timestamp = timestamp;
+        fs[7].push_back(instant);
+        m_framesSinceTriggered = 0;
+    }
 
     Feature diffFeat;
     diffFeat.hasTimestamp = false;

@@ -62,6 +62,7 @@ protected:
 
     std::deque<float> buffer;
     std::vector<float> dtwGrid;
+    int m_framesSinceTriggered;
     float templateAt(int i, int shift);
     float templateDiff(float maxVal, int shift);
     float templateDiffDtw(int w, float maxVal, int shift);
