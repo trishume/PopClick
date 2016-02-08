@@ -51,7 +51,8 @@ protected:
     float m_silenceThresh;
     int m_startBin;
     int m_dtwWidth;
-    int m_maxShift;
+    int m_maxShiftDown;
+    int m_maxShiftUp;
 
     enum State {SilenceBefore, Pop, SilenceAfter, BadSound};
     State m_curState;

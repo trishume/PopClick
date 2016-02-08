@@ -20,7 +20,8 @@ PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate), dtwGr
     m_silenceThresh = 0.2;
     m_startBin = 1;
     m_dtwWidth = 3;
-    m_maxShift = 4;
+    m_maxShiftDown = 4;
+    m_maxShiftUp = 2;
 
     m_curState = PopDetector::SilenceBefore;
     m_framesInState = 0;
@@ -145,13 +146,23 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
     d.isQuantized = true;
     d.quantizeStep = 1.0;
     list.push_back(d);
-    d.identifier = "maxshift";
-    d.name = "Maximum Template Shift";
-    d.description = "Largest number of bins in either direction template can be shifted to match.";
+    d.identifier = "maxshiftdown";
+    d.name = "Maximum Template Shift Down";
+    d.description = "Largest number of bins in down direction template can be shifted to match.";
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 10;
     d.defaultValue = 4;
+    d.isQuantized = true;
+    d.quantizeStep = 1.0;
+    list.push_back(d);
+    d.identifier = "maxshiftup";
+    d.name = "Maximum Template Shift Up";
+    d.description = "Largest number of bins in down direction template can be shifted to match.";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 10;
+    d.defaultValue = 2;
     d.isQuantized = true;
     d.quantizeStep = 1.0;
     list.push_back(d);
@@ -170,8 +181,10 @@ float PopDetector::getParameter(string identifier) const {
         return m_startBin;
     } else if(identifier == "dtwwidth") {
         return m_dtwWidth;
-    } else if(identifier == "maxshift") {
-        return m_maxShift;
+    } else if(identifier == "maxshiftdown") {
+        return m_maxShiftDown;
+    } else if(identifier == "maxshiftup") {
+        return m_maxShiftUp;
     }
     return 0;
 }
@@ -187,8 +200,10 @@ void PopDetector::setParameter(string identifier, float value) {
         m_startBin = value;
     } else if(identifier == "dtwwidth") {
         m_dtwWidth = value;
-    } else if(identifier == "maxshift") {
-        m_maxShift = value;
+    } else if(identifier == "maxshiftdown") {
+        m_maxShiftDown = value;
+    } else if(identifier == "maxshiftup") {
+        m_maxShiftUp = value;
     }
 }
 
@@ -408,10 +423,11 @@ PopDetector::FeatureSet PopDetector::process(const float *const *inputBuffers, V
 
     auto maxIt = max_element(buffer.begin(), buffer.end());
     int maxBin = (maxIt - buffer.begin()) % kBufferHeight;
-    int shift = min(m_maxShift, max(kPopTemplateMaxBin - maxBin,-m_maxShift));
+    // positive shift makes peak lower frequency, negative makes it higher
+    int shift = min(m_maxShiftDown, max(kPopTemplateMaxBin - maxBin,-m_maxShiftUp));
 
     float minDiff = 10000000.0;
-    for(int i = -m_maxShift; i < m_maxShift; ++i) {
+    for(int i = -m_maxShiftUp; i < m_maxShiftDown; ++i) {
         float diff = templateDiff(*maxIt, i);
         if(diff < minDiff) minDiff = diff;
     }
