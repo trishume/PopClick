@@ -2,11 +2,13 @@
 #include <vamp-sdk/PluginAdapter.h>
 
 #include "PopDetector.h"
+#include "TssDetector.h"
 
 
 // Declare one static adapter here for each plugin class in this library.
 
-static Vamp::PluginAdapter<PopDetector> myPluginAdapter;
+static Vamp::PluginAdapter<PopDetector> popAdapter;
+static Vamp::PluginAdapter<TssDetector> tssAdapter;
 
 
 // This is the entry-point for the library, and the only function that
@@ -23,7 +25,8 @@ vampGetPluginDescriptor(unsigned int version, unsigned int index)
     // library.)
 
     switch (index) {
-    case  0: return myPluginAdapter.getDescriptor();
+    case  0: return popAdapter.getDescriptor();
+    case  1: return tssAdapter.getDescriptor();
     default: return 0;
     }
 }
