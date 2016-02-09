@@ -46,8 +46,11 @@ protected:
     // plugin-specific data and methods go here
     int m_blockSize;
     float m_sensitivity;
+    float m_lowPassWeight;
     int m_maxShiftDown;
     int m_maxShiftUp;
+
+    std::vector<float> lowPassBuffer;
 
     float avgBand(std::vector<float> &frame, size_t low, size_t hi);
 };

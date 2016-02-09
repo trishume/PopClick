@@ -21,11 +21,14 @@ static const size_t kOptionalBandLo = kMainBandHi;
 static const size_t kUpperBandLo = kOptionalBandHi;
 static const size_t kUpperBandHi = kSpectrumSize;
 
+static const float kDefaultLowPassWeight = 0.2;
+
 TssDetector::TssDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = kPreferredBlockSize;
     m_sensitivity = 8.5;
     m_maxShiftDown = 4;
     m_maxShiftUp = 2;
+    m_lowPassWeight = kDefaultLowPassWeight;
 }
 
 TssDetector::~TssDetector() {
@@ -107,6 +110,15 @@ TssDetector::ParameterList TssDetector::getParameterDescriptors() const {
     d.defaultValue = 8.5;
     d.isQuantized = false;
     list.push_back(d);
+    d.identifier = "lowpass";
+    d.name = "Low Pass Filter Weight";
+    d.description = "The factor to give new samples in the weighted average";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 1;
+    d.defaultValue = kDefaultLowPassWeight;
+    d.isQuantized = false;
+    list.push_back(d);
     d.identifier = "maxshiftdown";
     d.name = "Maximum Shift Down";
     d.description = "Largest number of bins in down direction can be shifted to match.";
@@ -134,6 +146,8 @@ TssDetector::ParameterList TssDetector::getParameterDescriptors() const {
 float TssDetector::getParameter(string identifier) const {
     if (identifier == "sensitivity") {
         return m_sensitivity; // return the ACTUAL current value of your parameter here!
+    } else if(identifier == "lowpass") {
+        return m_lowPassWeight;
     } else if(identifier == "maxshiftdown") {
         return m_maxShiftDown;
     } else if(identifier == "maxshiftup") {
@@ -145,6 +159,8 @@ float TssDetector::getParameter(string identifier) const {
 void TssDetector::setParameter(string identifier, float value) {
     if (identifier == "sensitivity") {
         m_sensitivity = value;
+    } else if(identifier == "lowpass") {
+        m_lowPassWeight = value;
     } else if(identifier == "maxshiftdown") {
         m_maxShiftDown = value;
     } else if(identifier == "maxshiftup") {
@@ -174,6 +190,7 @@ bool TssDetector::initialise(size_t channels, size_t, size_t blockSize) {
 
     // Real initialisation work goes here!
     m_blockSize = blockSize;
+    lowPassBuffer.resize(m_blockSize / 2 + 1, 0.0);
     return true;
 }
 
@@ -253,20 +270,22 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
     size_t n = m_blockSize / 2 + 1;
     const float *fbuf = inputBuffers[0];
 
-    Feature spectrum;
-    spectrum.hasTimestamp = false;
-    spectrum.values.reserve(n); // optional
     for (size_t i = 0; i < n; ++i) {
         double real = fbuf[i * 2];
         double imag = fbuf[i * 2 + 1];
-        spectrum.values.push_back(real * real + imag * imag);
+        double newVal = real * real + imag * imag;
+        lowPassBuffer[i] = lowPassBuffer[i]*(1.0-m_lowPassWeight) + newVal*m_lowPassWeight;
     }
+
+    Feature spectrum;
+    spectrum.hasTimestamp = false;
+    spectrum.values = lowPassBuffer;
     fs[0].push_back(spectrum);
 
-    float lowerBand = avgBand(spectrum.values, kLowerBandLow, kLowerBandHi);
-    float mainBand = avgBand(spectrum.values, kMainBandLow, kMainBandHi);
-    float optionalBand = avgBand(spectrum.values, kOptionalBandLo, kOptionalBandHi);
-    float upperBand = avgBand(spectrum.values, kUpperBandLo, kUpperBandHi);
+    float lowerBand = avgBand(lowPassBuffer, kLowerBandLow, kLowerBandHi);
+    float mainBand = avgBand(lowPassBuffer, kMainBandLow, kMainBandHi);
+    float optionalBand = avgBand(lowPassBuffer, kOptionalBandLo, kOptionalBandHi);
+    float upperBand = avgBand(lowPassBuffer, kUpperBandLo, kUpperBandHi);
 
     float matchiness = mainBand / ((lowerBand+upperBand)/2.0);
 
