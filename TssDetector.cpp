@@ -21,13 +21,15 @@ static const size_t kOptionalBandLo = kMainBandHi;
 static const size_t kUpperBandLo = kOptionalBandHi;
 static const size_t kUpperBandHi = kSpectrumSize;
 
-static const float kDefaultLowPassWeight = 0.2;
+static const float kDefaultLowPassWeight = 0.3;
 
 TssDetector::TssDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = kPreferredBlockSize;
-    m_sensitivity = 8.5;
+    m_sensitivity = 1.0;
+    m_hysterisisFactor = 0.4;
     m_maxShiftDown = 4;
     m_maxShiftUp = 2;
+    m_minFrames = 30;
     m_lowPassWeight = kDefaultLowPassWeight;
 }
 
@@ -107,7 +109,16 @@ TssDetector::ParameterList TssDetector::getParameterDescriptors() const {
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 15;
-    d.defaultValue = 8.5;
+    d.defaultValue = 1.0;
+    d.isQuantized = false;
+    list.push_back(d);
+    d.identifier = "hysterisis";
+    d.name = "Trigger hysterisis";
+    d.description = "The factor of the trigger threshold required to untrigger";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 1;
+    d.defaultValue = 0.4;
     d.isQuantized = false;
     list.push_back(d);
     d.identifier = "lowpass";
@@ -118,6 +129,16 @@ TssDetector::ParameterList TssDetector::getParameterDescriptors() const {
     d.maxValue = 1;
     d.defaultValue = kDefaultLowPassWeight;
     d.isQuantized = false;
+    list.push_back(d);
+    d.identifier = "minframes";
+    d.name = "Minimum TSS time";
+    d.description = "The minimum number of frames of matchiness to consider a tsss sound";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 100;
+    d.defaultValue = 30;
+    d.isQuantized = true;
+    d.quantizeStep = 1.0;
     list.push_back(d);
     d.identifier = "maxshiftdown";
     d.name = "Maximum Shift Down";
@@ -146,8 +167,12 @@ TssDetector::ParameterList TssDetector::getParameterDescriptors() const {
 float TssDetector::getParameter(string identifier) const {
     if (identifier == "sensitivity") {
         return m_sensitivity; // return the ACTUAL current value of your parameter here!
+    } else if(identifier == "hysterisis") {
+        return m_hysterisisFactor;
     } else if(identifier == "lowpass") {
         return m_lowPassWeight;
+    } else if(identifier == "minframes") {
+        return m_minFrames;
     } else if(identifier == "maxshiftdown") {
         return m_maxShiftDown;
     } else if(identifier == "maxshiftup") {
@@ -159,8 +184,12 @@ float TssDetector::getParameter(string identifier) const {
 void TssDetector::setParameter(string identifier, float value) {
     if (identifier == "sensitivity") {
         m_sensitivity = value;
+    } else if(identifier == "hysterisis") {
+        m_hysterisisFactor = value;
     } else if(identifier == "lowpass") {
         m_lowPassWeight = value;
+    } else if(identifier == "minframes") {
+        m_minFrames = value;
     } else if(identifier == "maxshiftdown") {
         m_maxShiftDown = value;
     } else if(identifier == "maxshiftup") {
@@ -190,6 +219,7 @@ bool TssDetector::initialise(size_t channels, size_t, size_t blockSize) {
 
     // Real initialisation work goes here!
     m_blockSize = blockSize;
+    m_consecutiveMatches = 0;
     lowPassBuffer.resize(m_blockSize / 2 + 1, 0.0);
     return true;
 }
@@ -244,9 +274,20 @@ TssDetector::OutputList TssDetector::getOutputDescriptors() const {
     d.sampleType = OutputDescriptor::OneSamplePerStep;
     list.push_back(d);
 
-    d.identifier = "pops";
-    d.name = "Simple Pop instants";
-    d.description = "Instants where a real-time recognizer could recognize a pop had occured.";
+    d.identifier = "starts";
+    d.name = "Trigger onsets";
+    d.description = "Instants where a real-time recognizer could recognize a tss had occured.";
+    d.unit = "";
+    d.hasFixedBinCount = true;
+    d.binCount = 0;
+    d.hasKnownExtents = false;
+    d.isQuantized = false;
+    d.sampleType = OutputDescriptor::VariableSampleRate;
+    d.sampleRate = m_inputSampleRate;
+    list.push_back(d);
+    d.identifier = "stops";
+    d.name = "Off instants";
+    d.description = "Instants where a real-time recognizer could recognize a tss had stopped.";
     d.unit = "";
     d.hasFixedBinCount = true;
     d.binCount = 0;
@@ -288,6 +329,23 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
     float upperBand = avgBand(lowPassBuffer, kUpperBandLo, kUpperBandHi);
 
     float matchiness = mainBand / ((lowerBand+upperBand)/2.0);
+    if(matchiness >= m_sensitivity) {
+        m_consecutiveMatches += 1;
+        if(m_consecutiveMatches == m_minFrames) {
+            Feature instant;
+            instant.hasTimestamp = true;
+            instant.timestamp = timestamp;
+            fs[3].push_back(instant);
+        }
+    } else if(matchiness < m_sensitivity*m_hysterisisFactor) {
+        if(m_consecutiveMatches > m_minFrames) {
+            Feature instant;
+            instant.hasTimestamp = true;
+            instant.timestamp = timestamp;
+            fs[4].push_back(instant);
+        }
+        m_consecutiveMatches = 0;
+    }
 
     Feature matchFeat;
     matchFeat.hasTimestamp = false;
