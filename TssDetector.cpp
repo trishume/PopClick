@@ -15,7 +15,7 @@ static const size_t kMainBandLow = 40;
 static const size_t kMainBandHi = 60;
 static const size_t kOptionalBandHi = 160;
 
-static const size_t kLowerBandLow = 0;
+static const size_t kLowerBandLow = 4;
 static const size_t kLowerBandHi = kMainBandLow;
 static const size_t kOptionalBandLo = kMainBandHi;
 static const size_t kUpperBandLo = kOptionalBandHi;
@@ -25,11 +25,11 @@ static const float kDefaultLowPassWeight = 0.3;
 
 TssDetector::TssDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = kPreferredBlockSize;
-    m_sensitivity = 1.0;
+    m_sensitivity = 5.0;
     m_hysterisisFactor = 0.4;
     m_maxShiftDown = 4;
     m_maxShiftUp = 2;
-    m_minFrames = 30;
+    m_minFrames = 25;
     m_lowPassWeight = kDefaultLowPassWeight;
 }
 
@@ -108,8 +108,8 @@ TssDetector::ParameterList TssDetector::getParameterDescriptors() const {
     d.description = "The activation threshold at which a tss is registered";
     d.unit = "";
     d.minValue = 0;
-    d.maxValue = 15;
-    d.defaultValue = 1.0;
+    d.maxValue = 500.0;
+    d.defaultValue = 5.0;
     d.isQuantized = false;
     list.push_back(d);
     d.identifier = "hysterisis";
@@ -136,7 +136,7 @@ TssDetector::ParameterList TssDetector::getParameterDescriptors() const {
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 100;
-    d.defaultValue = 30;
+    d.defaultValue = 25;
     d.isQuantized = true;
     d.quantizeStep = 1.0;
     list.push_back(d);
