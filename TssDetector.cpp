@@ -7,7 +7,7 @@
 
 using namespace std;
 
-static const int kDebugHeight = 4;
+static const int kDebugHeight = 7;
 static const int kPreferredBlockSize = 512;
 static const int kSpectrumSize = kPreferredBlockSize/2+1;
 
@@ -22,6 +22,8 @@ static const size_t kUpperBandLo = kOptionalBandHi;
 static const size_t kUpperBandHi = kSpectrumSize;
 
 static const float kDefaultLowPassWeight = 0.3;
+static const int kSpeechShadowTime = 100;
+static const float kSpeechThresh = 0.5;
 
 TssDetector::TssDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = kPreferredBlockSize;
@@ -29,7 +31,7 @@ TssDetector::TssDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_hysterisisFactor = 0.4;
     m_maxShiftDown = 4;
     m_maxShiftUp = 2;
-    m_minFrames = 25;
+    m_minFrames = 20;
     m_lowPassWeight = kDefaultLowPassWeight;
 }
 
@@ -136,7 +138,7 @@ TssDetector::ParameterList TssDetector::getParameterDescriptors() const {
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 100;
-    d.defaultValue = 25;
+    d.defaultValue = 20;
     d.isQuantized = true;
     d.quantizeStep = 1.0;
     list.push_back(d);
@@ -220,6 +222,7 @@ bool TssDetector::initialise(size_t channels, size_t, size_t blockSize) {
     // Real initialisation work goes here!
     m_blockSize = blockSize;
     m_consecutiveMatches = 0;
+    m_framesSinceSpeech = 1000;
     lowPassBuffer.resize(m_blockSize / 2 + 1, 0.0);
     return true;
 }
@@ -328,8 +331,15 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
     float optionalBand = avgBand(lowPassBuffer, kOptionalBandLo, kOptionalBandHi);
     float upperBand = avgBand(lowPassBuffer, kUpperBandLo, kUpperBandHi);
 
+    m_framesSinceSpeech += 1;
+    if(lowerBand > kSpeechThresh) {
+        m_framesSinceSpeech = 0;
+    }
+
     float matchiness = mainBand / ((lowerBand+upperBand)/2.0);
-    if(matchiness >= m_sensitivity) {
+    bool outOfShadow = m_framesSinceSpeech > kSpeechShadowTime;
+    bool optionalPresent = (optionalBand > lowerBand || matchiness >= m_sensitivity*2);
+    if(matchiness >= m_sensitivity && outOfShadow && optionalPresent) {
         m_consecutiveMatches += 1;
         if(m_consecutiveMatches == m_minFrames) {
             Feature instant;
@@ -355,10 +365,13 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
     Feature debug;
     debug.hasTimestamp = false;
     debug.values.reserve(kDebugHeight); // optional
+    debug.values.push_back(m_consecutiveMatches / 1000.0 + 0.0002);
     debug.values.push_back(lowerBand);
     debug.values.push_back(mainBand);
     debug.values.push_back(optionalBand);
     debug.values.push_back(upperBand);
+    debug.values.push_back((float)outOfShadow + 0.0002);
+    debug.values.push_back((float)optionalPresent + 0.0002);
     fs[1].push_back(debug);
 
     return fs;

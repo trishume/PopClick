@@ -54,6 +54,7 @@ protected:
 
     std::vector<float> lowPassBuffer;
     int m_consecutiveMatches;
+    int m_framesSinceSpeech;
 
     float avgBand(std::vector<float> &frame, size_t low, size_t hi);
 };
