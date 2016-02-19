@@ -7,7 +7,9 @@
 
 using namespace std;
 
-static const int kDebugHeight = 7;
+static const bool kDelayMatch = false;
+
+static const int kDebugHeight = 9;
 static const int kPreferredBlockSize = 512;
 static const int kSpectrumSize = kPreferredBlockSize/2+1;
 
@@ -15,7 +17,7 @@ static const size_t kMainBandLow = 40;
 static const size_t kMainBandHi = 60;
 static const size_t kOptionalBandHi = 160;
 
-static const size_t kLowerBandLow = 4;
+static const size_t kLowerBandLow = 2;
 static const size_t kLowerBandHi = kMainBandLow;
 static const size_t kOptionalBandLo = kMainBandHi;
 static const size_t kUpperBandLo = kOptionalBandHi;
@@ -32,6 +34,7 @@ TssDetector::TssDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_maxShiftDown = 4;
     m_maxShiftUp = 2;
     m_minFrames = 20;
+    m_minFramesLong = 100;
     m_lowPassWeight = kDefaultLowPassWeight;
 }
 
@@ -142,6 +145,16 @@ TssDetector::ParameterList TssDetector::getParameterDescriptors() const {
     d.isQuantized = true;
     d.quantizeStep = 1.0;
     list.push_back(d);
+    d.identifier = "minframeslong";
+    d.name = "Minimum long TSS time";
+    d.description = "The minimum number of frames of matchiness to consider a long tsss sound";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 200;
+    d.defaultValue = 100;
+    d.isQuantized = true;
+    d.quantizeStep = 1.0;
+    list.push_back(d);
     d.identifier = "maxshiftdown";
     d.name = "Maximum Shift Down";
     d.description = "Largest number of bins in down direction can be shifted to match.";
@@ -175,6 +188,8 @@ float TssDetector::getParameter(string identifier) const {
         return m_lowPassWeight;
     } else if(identifier == "minframes") {
         return m_minFrames;
+    } else if(identifier == "minframeslong") {
+        return m_minFramesLong;
     } else if(identifier == "maxshiftdown") {
         return m_maxShiftDown;
     } else if(identifier == "maxshiftup") {
@@ -192,6 +207,8 @@ void TssDetector::setParameter(string identifier, float value) {
         m_lowPassWeight = value;
     } else if(identifier == "minframes") {
         m_minFrames = value;
+    } else if(identifier == "minframeslong") {
+        m_minFramesLong = value;
     } else if(identifier == "maxshiftdown") {
         m_maxShiftDown = value;
     } else if(identifier == "maxshiftup") {
@@ -223,6 +240,7 @@ bool TssDetector::initialise(size_t channels, size_t, size_t blockSize) {
     m_blockSize = blockSize;
     m_consecutiveMatches = 0;
     m_framesSinceSpeech = 1000;
+    m_framesSinceMatch = 1000;
     lowPassBuffer.resize(m_blockSize / 2 + 1, 0.0);
     return true;
 }
@@ -331,24 +349,52 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
     float optionalBand = avgBand(lowPassBuffer, kOptionalBandLo, kOptionalBandHi);
     float upperBand = avgBand(lowPassBuffer, kUpperBandLo, kUpperBandHi);
 
+    // TODO: integer overflow if no speech for a long time
     m_framesSinceSpeech += 1;
     if(lowerBand > kSpeechThresh) {
         m_framesSinceSpeech = 0;
     }
 
+    float debugMarker = 0.0002;
     float matchiness = mainBand / ((lowerBand+upperBand)/2.0);
     bool outOfShadow = m_framesSinceSpeech > kSpeechShadowTime;
     bool optionalPresent = (optionalBand > lowerBand || matchiness >= m_sensitivity*2);
-    if(matchiness >= m_sensitivity && outOfShadow && optionalPresent) {
+    int immediateMatchFrame = kDelayMatch ? m_minFramesLong : m_minFrames;
+    m_framesSinceMatch += 1;
+    if(((matchiness >= m_sensitivity && optionalPresent) ||
+        (m_consecutiveMatches > 0 && matchiness >= m_sensitivity*m_hysterisisFactor))
+     && outOfShadow) {
+        debugMarker = 0.01;
+        // second one in double "tss" came earlier than trigger timer
+        if(kDelayMatch && m_consecutiveMatches == 0 && m_framesSinceMatch <= m_minFramesLong) {
+            Feature instant;
+            instant.hasTimestamp = true;
+            instant.timestamp = timestamp;
+            fs[3].push_back(instant);
+            fs[4].push_back(instant);
+            m_framesSinceMatch = 1000;
+        }
+
         m_consecutiveMatches += 1;
-        if(m_consecutiveMatches == m_minFrames) {
+        if(kDelayMatch && m_consecutiveMatches == m_minFrames) {
+            m_framesSinceMatch = m_consecutiveMatches;
+        } else if(m_consecutiveMatches == immediateMatchFrame) {
+            debugMarker = 1.0;
             Feature instant;
             instant.hasTimestamp = true;
             instant.timestamp = timestamp;
             fs[3].push_back(instant);
         }
-    } else if(matchiness < m_sensitivity*m_hysterisisFactor) {
-        if(m_consecutiveMatches > m_minFrames) {
+    } else {
+        bool delayedMatch = kDelayMatch && (m_framesSinceMatch == m_minFramesLong && outOfShadow);
+        if(delayedMatch) {
+            Feature instant;
+            instant.hasTimestamp = true;
+            instant.timestamp = timestamp;
+            fs[3].push_back(instant);
+        }
+        if(m_consecutiveMatches >= immediateMatchFrame || delayedMatch) {
+            debugMarker = 2.0;
             Feature instant;
             instant.hasTimestamp = true;
             instant.timestamp = timestamp;
@@ -365,7 +411,9 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
     Feature debug;
     debug.hasTimestamp = false;
     debug.values.reserve(kDebugHeight); // optional
+    debug.values.push_back(debugMarker);
     debug.values.push_back(m_consecutiveMatches / 1000.0 + 0.0002);
+    debug.values.push_back(m_framesSinceMatch / 1000.0 + 0.0002);
     debug.values.push_back(lowerBand);
     debug.values.push_back(mainBand);
     debug.values.push_back(optionalBand);

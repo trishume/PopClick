@@ -18,7 +18,7 @@ PopDetector::PopDetector(float inputSampleRate) : Plugin(inputSampleRate), dtwGr
     m_boundThreshDiv = 10;
     m_sensitivity = 8.5;
     m_silenceThresh = 0.2;
-    m_startBin = 1;
+    m_startBin = 2;
     m_dtwWidth = 3;
     m_maxShiftDown = 4;
     m_maxShiftUp = 2;
@@ -132,7 +132,7 @@ PopDetector::ParameterList PopDetector::getParameterDescriptors() const {
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 5;
-    d.defaultValue = 1;
+    d.defaultValue = 2;
     d.isQuantized = true;
     d.quantizeStep = 1.0;
     list.push_back(d);
@@ -523,7 +523,7 @@ float PopDetector::templateAt(int i, int shift) {
 
 float PopDetector::diffCol(int templStart, int bufStart, float maxVal, int shift) {
     float diff = 0;
-    for(unsigned i = 0; i < kBufferHeight; ++i) {
+    for(unsigned i = m_startBin; i < kBufferHeight; ++i) {
         float d = templateAt(templStart+i, shift) - buffer[bufStart+i]/maxVal;
         diff += abs(d);
     }
