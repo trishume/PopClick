@@ -29,11 +29,11 @@ PLUGIN_LIBRARY_NAME := popclick
 
 # Edit this to list the .cpp or .c files in your plugin project
 #
-PLUGIN_SOURCES := PopDetector.cpp TssDetector.cpp plugins.cpp
+PLUGIN_SOURCES := PopDetector.cpp TssDetector.cpp TemplateDetector.cpp plugins.cpp
 
 # Edit this to list the .h files in your plugin project
 #
-PLUGIN_HEADERS := PopDetector.h TssDetector.h
+PLUGIN_HEADERS := PopDetector.h TssDetector.h TemplateDetector.h
 
 
 ##  Normally you should not edit anything below this line
