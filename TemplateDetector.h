@@ -48,13 +48,17 @@ protected:
     int m_blockSize;
     float m_sensitivity;
     int m_minFrames;
-    int m_startBin;
+    unsigned m_startBin;
     float m_hysterisisFactor;
     float m_lowPassWeight;
     int m_maxShiftDown;
     int m_maxShiftUp;
+    int m_template;
 
     std::vector<float> lowPassBuffer;
+
+    float m_templateMax;
+    float bufferMax(const float * const buf) const;
 
     std::deque<float> buffer;
     int m_framesSinceTriggered;

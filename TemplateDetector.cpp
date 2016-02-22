@@ -7,10 +7,9 @@
 
 using namespace std;
 
-#include "poptemplate.h"
+#include "templates.h"
 
-static const int kDebugHeight = kBufferHeight + 1;
-
+static const int kDebugExtraHeight = 1;
 static const float kDefaultLowPassWeight = 1.0;
 
 TemplateDetector::TemplateDetector(float inputSampleRate) : Plugin(inputSampleRate) {
@@ -22,13 +21,14 @@ TemplateDetector::TemplateDetector(float inputSampleRate) : Plugin(inputSampleRa
     m_hysterisisFactor = 0.4;
     m_lowPassWeight = kDefaultLowPassWeight;
     m_minFrames = 20;
+    m_template = 0;
 }
 
 TemplateDetector::~TemplateDetector() {
 }
 
 string TemplateDetector::getIdentifier() const {
-    return "TemplateDetector";
+    return "templatedetector";
 }
 
 string TemplateDetector::getName() const {
@@ -94,6 +94,17 @@ TemplateDetector::ParameterList TemplateDetector::getParameterDescriptors() cons
     // they have not changed in the mean time.
 
     ParameterDescriptor d;
+    d.identifier = "tempindex";
+    d.name = "Template index";
+    d.description = "Index of the template to be used in the templates list";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = kNumTemplates-1;
+    d.defaultValue = 0;
+    d.isQuantized = true;
+    d.quantizeStep = 1.0;
+    list.push_back(d);
+
     d.identifier = "sensitivity";
     d.name = "Trigger threshold";
     d.description = "The activation threshold below which a pop is registered";
@@ -173,6 +184,8 @@ float TemplateDetector::getParameter(string identifier) const {
         return m_sensitivity; // return the ACTUAL current value of your parameter here!
     } else if(identifier == "hysterisis") {
         return m_hysterisisFactor;
+    } else if(identifier == "tempindex") {
+        return m_template;
     } else if(identifier == "lowpass") {
         return m_lowPassWeight;
     } else if(identifier == "minframes") {
@@ -192,6 +205,8 @@ void TemplateDetector::setParameter(string identifier, float value) {
         m_sensitivity = value;
     } else if(identifier == "hysterisis") {
         m_hysterisisFactor = value;
+    } else if(identifier == "tempindex") {
+        m_template = value;
     } else if(identifier == "lowpass") {
         m_lowPassWeight = value;
     } else if(identifier == "minframes") {
@@ -228,8 +243,11 @@ bool TemplateDetector::initialise(size_t channels, size_t, size_t blockSize) {
     // Real initialisation work goes here!
     m_blockSize = blockSize;
     lowPassBuffer.resize(m_blockSize / 2 + 1, 0.0);
+
+    m_templateMax = bufferMax(kTemplates[m_template].data);
+
     buffer.clear();
-    for(unsigned i = 0; i < kBufferSize; ++i) {
+    for(unsigned i = 0; i < kTemplates[m_template].size(); ++i) {
         buffer.push_back(0.0);
     }
 
@@ -274,7 +292,7 @@ TemplateDetector::OutputList TemplateDetector::getOutputDescriptors() const {
     d.identifier = "debugspectrum";
     d.name = "Debug Spectrum";
     d.description = "Spectrum containing special debugging info";
-    d.binCount = kDebugHeight;
+    d.binCount = kTemplates[m_template].height()+kDebugExtraHeight;
     // all attributes are already set to the right value
     list.push_back(d);
 
@@ -338,27 +356,30 @@ TemplateDetector::FeatureSet TemplateDetector::process(const float *const *input
     spectrum.values = lowPassBuffer;
     fs[0].push_back(spectrum);
 
-    auto it = max_element(spectrum.values.begin()+m_startBin,spectrum.values.end());
-    float maxAmplitude = *it;
-
+    const TemplateInfo *tplate = &(kTemplates[m_template]);
     // update buffer forward one time step
-    for(unsigned i = 0; i < kBufferPrimaryHeight; ++i) {
+    for(unsigned i = 0; i < tplate->primaryHeight; ++i) {
         buffer.pop_front();
         buffer.push_back(spectrum.values[i]);
     }
     // high frequencies aren't useful so we bin them all together
     buffer.pop_front();
-    float highSum = accumulate(spectrum.values.begin()+kBufferPrimaryHeight,spectrum.values.end(),0.0);
+    float highSum = accumulate(spectrum.values.begin()+tplate->primaryHeight,spectrum.values.end(),0.0);
     buffer.push_back(highSum);
 
-    auto maxIt = max_element(buffer.begin(), buffer.end());
-    int maxBin = (maxIt - buffer.begin()) % kBufferHeight;
-    // positive shift makes peak lower frequency, negative makes it higher
-    int shift = min(m_maxShiftDown, max(kPopTemplateMaxBin - maxBin,-m_maxShiftUp));
+    // compute max ignoring lower bins
+    float maxVal = -1000.0;
+    for(auto it = buffer.begin(); it != buffer.end(); ++it) {
+        if((it-buffer.begin()) % tplate->height() < m_startBin) continue;
+        if(*it >= maxVal) {
+            maxVal = *it;
+        }
+    }
 
+    // positive shift makes peak lower frequency, negative makes it higher
     float minDiff = 10000000.0;
     for(int i = -m_maxShiftUp; i < m_maxShiftDown; ++i) {
-        float diff = templateDiff(*maxIt, i);
+        float diff = templateDiff(maxVal, i);
         if(diff < minDiff) minDiff = diff;
     }
     Feature diffFeat;
@@ -377,10 +398,9 @@ TemplateDetector::FeatureSet TemplateDetector::process(const float *const *input
 
     Feature debug;
     debug.hasTimestamp = false;
-    debug.values.reserve(kDebugHeight); // optional
     debug.values.push_back(minDiff);
-    for (size_t i = 0; i < kBufferHeight; ++i) {
-        float val = buffer[(kBufferSize-kBufferHeight)+i];
+    for (size_t i = 0; i < tplate->height(); ++i) {
+        float val = buffer[(tplate->size()-tplate->height())+i];
         debug.values.push_back(val);
     }
     fs[1].push_back(debug);
@@ -389,19 +409,20 @@ TemplateDetector::FeatureSet TemplateDetector::process(const float *const *input
 }
 
 float TemplateDetector::templateAt(int i, int shift) {
-    int bin = i % kBufferHeight;
-    if(i % kBufferHeight >= kBufferPrimaryHeight) {
-        return kPopTemplate[i]/kPopTemplateMax;
+    const TemplateInfo *tplate = &(kTemplates[m_template]);
+    int bin = i % tplate->height();
+    if(i % tplate->height() >= tplate->primaryHeight) {
+        return tplate->data[i]/m_templateMax;
     }
-    if(bin+shift < 0 || bin+shift >= kBufferPrimaryHeight) {
+    if(bin+shift < 0 || bin+shift >= (int)(tplate->primaryHeight)) {
         return 0.0;
     }
-    return kPopTemplate[i+shift]/kPopTemplateMax;
+    return tplate->data[i+shift]/m_templateMax;
 }
 
 float TemplateDetector::diffCol(int templStart, int bufStart, float maxVal, int shift) {
     float diff = 0;
-    for(unsigned i = m_startBin; i < kBufferHeight; ++i) {
+    for(unsigned i = m_startBin; i < kTemplates[m_template].height(); ++i) {
         float d = templateAt(templStart+i, shift) - buffer[bufStart+i]/maxVal;
         diff += abs(d);
     }
@@ -410,8 +431,20 @@ float TemplateDetector::diffCol(int templStart, int bufStart, float maxVal, int 
 
 float TemplateDetector::templateDiff(float maxVal, int shift) {
     float diff = 0;
-    for(unsigned i = 0; i < kBufferSize; i += kBufferHeight) {
+    for(unsigned i = 0; i < kTemplates[m_template].size(); i += kTemplates[m_template].height()) {
         diff += diffCol(i,i, maxVal,shift);
     }
     return diff;
+}
+
+float TemplateDetector::bufferMax(const float * const buf) const {
+    float maxVal = -1000.0;
+    const TemplateInfo *tplate = &(kTemplates[m_template]);
+    for(unsigned i = 0; i < tplate->size(); ++i) {
+        if(i % tplate->height() < m_startBin) continue;
+        if(buf[i] >= maxVal) {
+            maxVal = buf[i];
+        }
+    }
+    return maxVal;
 }

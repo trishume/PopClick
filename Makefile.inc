@@ -33,7 +33,7 @@ PLUGIN_SOURCES := PopDetector.cpp TssDetector.cpp TemplateDetector.cpp plugins.c
 
 # Edit this to list the .h files in your plugin project
 #
-PLUGIN_HEADERS := PopDetector.h TssDetector.h TemplateDetector.h
+PLUGIN_HEADERS := PopDetector.h TssDetector.h TemplateDetector.h templates.h popTemplate.h
 
 
 ##  Normally you should not edit anything below this line
