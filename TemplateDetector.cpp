@@ -10,7 +10,7 @@ using namespace std;
 #include "templates.h"
 
 static const int kDebugExtraHeight = 1;
-static const float kDefaultLowPassWeight = 1.0;
+static const float kDefaultLowPassWeight = 0.05;
 
 TemplateDetector::TemplateDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = 512;
