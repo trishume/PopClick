@@ -10,15 +10,15 @@ using namespace std;
 #include "templates.h"
 
 static const int kDebugExtraHeight = 1;
-static const float kDefaultLowPassWeight = 0.05;
+static const float kDefaultLowPassWeight = 0.06;
 
 TemplateDetector::TemplateDetector(float inputSampleRate) : Plugin(inputSampleRate) {
     m_blockSize = 512;
-    m_sensitivity = 8.5;
-    m_startBin = 2;
-    m_maxShiftDown = 4;
-    m_maxShiftUp = 2;
-    m_hysterisisFactor = 0.4;
+    m_sensitivity = 2.0;
+    m_startBin = 3;
+    m_maxShiftDown = 2;
+    m_maxShiftUp = 3;
+    m_hysterisisFactor = 1.5;
     m_lowPassWeight = kDefaultLowPassWeight;
     m_minFrames = 20;
     m_template = 0;
@@ -111,7 +111,7 @@ TemplateDetector::ParameterList TemplateDetector::getParameterDescriptors() cons
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 15;
-    d.defaultValue = 8.5;
+    d.defaultValue = 2.0;
     d.isQuantized = false;
     list.push_back(d);
 
@@ -121,7 +121,7 @@ TemplateDetector::ParameterList TemplateDetector::getParameterDescriptors() cons
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 1;
-    d.defaultValue = 0.4;
+    d.defaultValue = 1.5;
     d.isQuantized = false;
     list.push_back(d);
     d.identifier = "lowpass";
@@ -250,6 +250,7 @@ bool TemplateDetector::initialise(size_t channels, size_t, size_t blockSize) {
     for(unsigned i = 0; i < kTemplates[m_template].size(); ++i) {
         buffer.push_back(0.0);
     }
+    triggering = false;
 
     return true;
 }
@@ -387,20 +388,25 @@ TemplateDetector::FeatureSet TemplateDetector::process(const float *const *input
     diffFeat.values.push_back(minDiff);
     fs[2].push_back(diffFeat);
 
-    m_framesSinceTriggered += 1;
-    if(minDiff < m_sensitivity && m_framesSinceTriggered > 15) {
+    if(minDiff < m_sensitivity && !triggering) {
         Feature instant;
         instant.hasTimestamp = true;
         instant.timestamp = timestamp;
         fs[3].push_back(instant);
-        m_framesSinceTriggered = 0;
+        triggering = true;
+    } else if(minDiff >= m_sensitivity*m_hysterisisFactor && triggering) {
+        Feature instant;
+        instant.hasTimestamp = true;
+        instant.timestamp = timestamp;
+        fs[4].push_back(instant);
+        triggering = false;
     }
 
     Feature debug;
     debug.hasTimestamp = false;
     debug.values.push_back(minDiff);
     for (size_t i = 0; i < tplate->height(); ++i) {
-        float val = buffer[(tplate->size()-tplate->height())+i];
+        float val = buffer[(tplate->size()-tplate->height())+i]/maxVal;
         debug.values.push_back(val);
     }
     fs[1].push_back(debug);

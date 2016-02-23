@@ -61,7 +61,7 @@ protected:
     float bufferMax(const float * const buf) const;
 
     std::deque<float> buffer;
-    int m_framesSinceTriggered;
+    bool triggering;
     float templateAt(int i, int shift);
     float templateDiff(float maxVal, int shift);
     float diffCol(int templStart, int bufStart, float maxVal, int shift);
