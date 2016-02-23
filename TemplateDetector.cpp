@@ -9,7 +9,7 @@ using namespace std;
 
 #include "templates.h"
 
-static const int kDebugExtraHeight = 1;
+static const int kDebugExtraHeight = 0;
 static const float kDefaultLowPassWeight = 0.06;
 
 TemplateDetector::TemplateDetector(float inputSampleRate) : Plugin(inputSampleRate) {
@@ -250,7 +250,7 @@ bool TemplateDetector::initialise(size_t channels, size_t, size_t blockSize) {
     for(unsigned i = 0; i < kTemplates[m_template].size(); ++i) {
         buffer.push_back(0.0);
     }
-    triggering = false;
+    m_consecutiveMatches = 0;
 
     return true;
 }
@@ -293,7 +293,7 @@ TemplateDetector::OutputList TemplateDetector::getOutputDescriptors() const {
     d.identifier = "debugspectrum";
     d.name = "Debug Spectrum";
     d.description = "Spectrum containing special debugging info";
-    d.binCount = kTemplates[m_template].height()+kDebugExtraHeight;
+    d.binCount = kTemplates[m_template].height()-m_startBin+kDebugExtraHeight;
     // all attributes are already set to the right value
     list.push_back(d);
 
@@ -388,25 +388,29 @@ TemplateDetector::FeatureSet TemplateDetector::process(const float *const *input
     diffFeat.values.push_back(minDiff);
     fs[2].push_back(diffFeat);
 
-    if(minDiff < m_sensitivity && !triggering) {
-        Feature instant;
-        instant.hasTimestamp = true;
-        instant.timestamp = timestamp;
-        fs[3].push_back(instant);
-        triggering = true;
-    } else if(minDiff >= m_sensitivity*m_hysterisisFactor && triggering) {
-        Feature instant;
-        instant.hasTimestamp = true;
-        instant.timestamp = timestamp;
-        fs[4].push_back(instant);
-        triggering = false;
+    if(minDiff < m_sensitivity ||
+        (m_consecutiveMatches > 0 && minDiff < m_sensitivity*m_hysterisisFactor)) {
+        m_consecutiveMatches += 1;
+        if(m_consecutiveMatches == m_minFrames) {
+            Feature instant;
+            instant.hasTimestamp = true;
+            instant.timestamp = timestamp;
+            fs[3].push_back(instant);
+        }
+    } else {
+        if(m_consecutiveMatches >= m_minFrames) {
+            Feature instant;
+            instant.hasTimestamp = true;
+            instant.timestamp = timestamp;
+            fs[4].push_back(instant);
+        }
+        m_consecutiveMatches = 0;
     }
 
     Feature debug;
     debug.hasTimestamp = false;
-    debug.values.push_back(minDiff);
-    for (size_t i = 0; i < tplate->height(); ++i) {
-        float val = buffer[(tplate->size()-tplate->height())+i]/maxVal;
+    for (size_t i = m_startBin; i < tplate->height(); ++i) {
+        float val = buffer[(tplate->size()-tplate->height())+i];
         debug.values.push_back(val);
     }
     fs[1].push_back(debug);

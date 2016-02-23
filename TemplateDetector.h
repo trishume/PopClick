@@ -55,13 +55,14 @@ protected:
     int m_maxShiftUp;
     int m_template;
 
+    int m_consecutiveMatches;
+
     std::vector<float> lowPassBuffer;
 
     float m_templateMax;
     float bufferMax(const float * const buf) const;
 
     std::deque<float> buffer;
-    bool triggering;
     float templateAt(int i, int shift);
     float templateDiff(float maxVal, int shift);
     float diffCol(int templStart, int bufStart, float maxVal, int shift);
