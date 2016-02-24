@@ -17,7 +17,7 @@ TemplateDetector::TemplateDetector(float inputSampleRate) : Plugin(inputSampleRa
     m_sensitivity = 2.0;
     m_startBin = 3;
     m_maxShiftDown = 2;
-    m_maxShiftUp = 3;
+    m_maxShiftUp = 2;
     m_hysterisisFactor = 1.5;
     m_lowPassWeight = kDefaultLowPassWeight;
     m_minFrames = 20;
@@ -120,7 +120,7 @@ TemplateDetector::ParameterList TemplateDetector::getParameterDescriptors() cons
     d.description = "The factor of the trigger threshold required to untrigger";
     d.unit = "";
     d.minValue = 0;
-    d.maxValue = 1;
+    d.maxValue = 3;
     d.defaultValue = 1.5;
     d.isQuantized = false;
     list.push_back(d);
@@ -150,7 +150,7 @@ TemplateDetector::ParameterList TemplateDetector::getParameterDescriptors() cons
     d.unit = "";
     d.minValue = 0;
     d.maxValue = 5;
-    d.defaultValue = 2;
+    d.defaultValue = 3;
     d.isQuantized = true;
     d.quantizeStep = 1.0;
     list.push_back(d);
@@ -222,6 +222,8 @@ void TemplateDetector::setParameter(string identifier, float value) {
 
 TemplateDetector::ProgramList TemplateDetector::getPrograms() const {
     ProgramList list;
+    list.push_back("blow1");
+    list.push_back("blow2");
 
     // If you have no programs, return an empty list (or simply don't
     // implement this function or getCurrentProgram/selectProgram)
@@ -230,10 +232,18 @@ TemplateDetector::ProgramList TemplateDetector::getPrograms() const {
 }
 
 string TemplateDetector::getCurrentProgram() const {
-    return ""; // no programs
+    return "blow1"; // no programs
 }
 
-void TemplateDetector::selectProgram(string) {
+void TemplateDetector::selectProgram(string prog) {
+    if(prog == "blow2") {
+        m_template = 1;
+        m_startBin = 5;
+        m_sensitivity = 3.7;
+        m_hysterisisFactor = 1.4;
+        m_maxShiftUp = 4;
+        m_maxShiftDown = 4;
+    }
 }
 
 bool TemplateDetector::initialise(size_t channels, size_t, size_t blockSize) {
