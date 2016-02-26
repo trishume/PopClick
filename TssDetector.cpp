@@ -14,16 +14,16 @@ static const int kPreferredBlockSize = 512;
 static const int kSpectrumSize = kPreferredBlockSize/2+1;
 
 static const size_t kMainBandLow = 40;
-static const size_t kMainBandHi = 60;
-static const size_t kOptionalBandHi = 160;
+static const size_t kMainBandHi = 100;
+static const size_t kOptionalBandHi = 180;
 
-static const size_t kLowerBandLow = 2;
+static const size_t kLowerBandLow = 3;
 static const size_t kLowerBandHi = kMainBandLow;
 static const size_t kOptionalBandLo = kMainBandHi;
 static const size_t kUpperBandLo = kOptionalBandHi;
 static const size_t kUpperBandHi = kSpectrumSize;
 
-static const float kDefaultLowPassWeight = 0.3;
+static const float kDefaultLowPassWeight = 0.6;
 static const int kSpeechShadowTime = 100;
 static const float kSpeechThresh = 0.5;
 
@@ -358,10 +358,10 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
     float debugMarker = 0.0002;
     float matchiness = mainBand / ((lowerBand+upperBand)/2.0);
     bool outOfShadow = m_framesSinceSpeech > kSpeechShadowTime;
-    bool optionalPresent = (optionalBand > lowerBand || matchiness >= m_sensitivity*2);
+    bool optionalPresent = (optionalBand > upperBand*5 || matchiness >= m_sensitivity*2);
     int immediateMatchFrame = kDelayMatch ? m_minFramesLong : m_minFrames;
     m_framesSinceMatch += 1;
-    if(((matchiness >= m_sensitivity && optionalPresent) ||
+    if(((matchiness >= m_sensitivity) ||
         (m_consecutiveMatches > 0 && matchiness >= m_sensitivity*m_hysterisisFactor))
      && outOfShadow) {
         debugMarker = 0.01;
