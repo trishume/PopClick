@@ -238,6 +238,7 @@ bool TssDetector::initialise(size_t channels, size_t, size_t blockSize) {
 
     // Real initialisation work goes here!
     m_blockSize = blockSize;
+    m_savedOtherBands = 0.0002;
     m_consecutiveMatches = 0;
     m_framesSinceSpeech = 1000;
     m_framesSinceMatch = 1000;
@@ -362,7 +363,8 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
     int immediateMatchFrame = kDelayMatch ? m_minFramesLong : m_minFrames;
     m_framesSinceMatch += 1;
     if(((matchiness >= m_sensitivity) ||
-        (m_consecutiveMatches > 0 && matchiness >= m_sensitivity*m_hysterisisFactor))
+        (m_consecutiveMatches > 0 && matchiness >= m_sensitivity*m_hysterisisFactor) ||
+        (m_consecutiveMatches > immediateMatchFrame && (mainBand/m_savedOtherBands) >= m_sensitivity*m_hysterisisFactor*0.5))
      && outOfShadow) {
         debugMarker = 0.01;
         // second one in double "tss" came earlier than trigger timer
@@ -384,6 +386,7 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
             instant.hasTimestamp = true;
             instant.timestamp = timestamp;
             fs[3].push_back(instant);
+            m_savedOtherBands = ((lowerBand+upperBand)/2.0);
         }
     } else {
         bool delayedMatch = kDelayMatch && (m_framesSinceMatch == m_minFramesLong && outOfShadow);
@@ -413,7 +416,8 @@ TssDetector::FeatureSet TssDetector::process(const float *const *inputBuffers, V
     debug.values.reserve(kDebugHeight); // optional
     debug.values.push_back(debugMarker);
     debug.values.push_back(m_consecutiveMatches / 1000.0 + 0.0002);
-    debug.values.push_back(m_framesSinceMatch / 1000.0 + 0.0002);
+    debug.values.push_back(m_savedOtherBands);
+    // debug.values.push_back(m_framesSinceMatch / 1000.0 + 0.0002);
     debug.values.push_back(lowerBand);
     debug.values.push_back(mainBand);
     debug.values.push_back(optionalBand);

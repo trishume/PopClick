@@ -57,6 +57,7 @@ protected:
     int m_consecutiveMatches;
     int m_framesSinceSpeech;
     int m_framesSinceMatch;
+    float m_savedOtherBands;
 
     float avgBand(std::vector<float> &frame, size_t low, size_t hi);
 };
